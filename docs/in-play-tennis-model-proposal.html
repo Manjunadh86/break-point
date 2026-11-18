@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>In-play tennis win-probability model: research and proposal</title>
+<style>
+  :root{--bg:#111214;--fg:#e8e8ea;--fg2:#b4b6bc;--fg3:#85888f;--line:#2a2c31;--fill:#1b1d21;--fill2:#22252a;--accent:#6ea8fe;--warn:#e0b04a;--danger:#e36b6b;--ok:#5cb98a;--info:#6ea8fe}
+  @media (prefers-color-scheme: light){:root{--bg:#ffffff;--fg:#141414;--fg2:#444;--fg3:#777;--line:#e2e2e6;--fill:#f6f6f8;--fill2:#eef0f4;--accent:#2b6cd4;--warn:#9a6b00;--danger:#b23a3a;--ok:#1f7a4d;--info:#2b6cd4}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 24px 80px}
+  h1{font-size:24px;line-height:30px;font-weight:600;margin:0 0 8px}
+  h2{font-size:18px;line-height:24px;font-weight:600;margin:28px 0 8px}
+  h3{font-size:16px;line-height:22px;font-weight:600;margin:20px 0 6px}
+  p{margin:6px 0 10px}
+  .sub{color:var(--fg2)}
+  .cap{color:var(--fg3);font-size:12px;line-height:16px;margin:4px 0 14px}
+  nav{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 10px;padding-bottom:12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2;padding-top:8px}
+  nav button{border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:999px;padding:4px 12px;font-size:13px;cursor:pointer}
+  nav button.active{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+  section{display:none}section.active{display:block}
+  table{border-collapse:collapse;width:100%;margin:6px 0 10px;font-size:13px;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  th,td{text-align:left;vertical-align:top;padding:7px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--fg2);font-weight:600;background:var(--fill)}
+  tr:last-child td{border-bottom:none}
+  tbody tr:nth-child(even) td{background:var(--fill)}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:middle}
+  .callout{border:1px solid var(--line);border-left:3px solid var(--info);background:var(--fill);border-radius:6px;padding:10px 14px;margin:10px 0}
+  .callout.warn{border-left-color:var(--warn)}.callout.danger{border-left-color:var(--danger)}
+  .callout b{display:block;margin-bottom:4px}
+  .stats{display:flex;flex-wrap:wrap;gap:28px;margin:14px 0 2px}
+  .stat .v{font-size:26px;font-weight:600;line-height:30px}.stat .l{color:var(--fg3);font-size:12px;max-width:220px}
+  .stat.warn .v{color:var(--warn)}.stat.danger .v{color:var(--danger)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media (max-width:900px){.grid2{grid-template-columns:1fr}}
+  .chart{width:100%;height:auto;display:block}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--fg2);margin:4px 0}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  details{border-bottom:1px solid var(--line);padding:6px 0}
+  summary{cursor:pointer;font-weight:600;padding:6px 0}
+  summary span{color:var(--fg3);font-weight:400;margin-left:8px;font-size:12px}
+  .card{border:1px solid var(--line);border-radius:6px;margin:10px 0}
+  .card .hd{font-size:12px;color:var(--fg2);padding:6px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
+  .card .bd{padding:10px 12px}
+  .card .bd p{margin:4px 0}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;background:var(--fill2);padding:1px 4px;border-radius:3px}
+  .arch{overflow-x:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>In-play tennis win-probability model: research and proposal</h1>
+  <p class="sub">Scope: ATP Challenger, ATP, and WTA best-of-three singles. Goal: P(T1 wins the match) at every point of the match, including the states where a short-priced favourite fades. Grounded in the Break Point repo (<code>research/markov.py</code>, <code>predictor.py</code>, <code>live.py</code>) and the published in-play literature. Prepared 14 Oct 2026.</p>
+  <nav id="nav"></nav>
+  <div id="root"></div>
+</div>
+
+<script>
+// ----------------------------------------------------------------------------
+// helpers
+// ----------------------------------------------------------------------------
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const tone = {success:"var(--ok)",warning:"var(--warn)",danger:"var(--danger)",info:"var(--info)"};
+function table(headers, rows, rowTone){
+  let h = "<table><thead><tr>"+headers.map(x=>"<th>"+esc(x)+"</th>").join("")+"</tr></thead><tbody>";
+  rows.forEach((r,i)=>{
+    h+="<tr>"+r.map((c,j)=>{
+      let cell = esc(c);
+      if(j===0 && rowTone && rowTone[i]) cell = '<span class="dot" style="background:'+tone[rowTone[i]]+'"></span>'+cell;
+      return "<td>"+cell+"</td>";
+    }).join("")+"</tr>";
+  });
+  return h+"</tbody></table>";
+}
+const callout=(t,title,body)=>'<div class="callout '+t+'"><b>'+esc(title)+'</b>'+body+'</div>';
+const cap = s => '<p class="cap">'+esc(s)+'</p>';
+const P = s => '<p>'+s+'</p>';
+const palette=["#2E79B5","#1F8A65","#F0A040","#7B64B8","#C85898","#2A9A8A"];
+
+function barChart(o){
+  const W=560,H=o.height||240,pl=60,pr=10,pt=10,pb=54;
+  const all=o.series.flatMap(s=>s.data);
+  const min=o.min!=null?o.min:0, max=o.max!=null?o.max:Math.max(...all)*1.1;
+  const cw=(W-pl-pr)/o.categories.length, n=o.series.length, bw=Math.min(28,(cw-10)/n);
+  const y=v=>pt+(H-pt-pb)*(1-(v-min)/(max-min));
+  let s='<svg class="chart" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">';
+  for(let i=0;i<=4;i++){const v=min+(max-min)*i/4;s+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="var(--line)"/><text x="'+(pl-6)+'" y="'+(y(v)+4)+'" font-size="10" text-anchor="end" fill="var(--fg3)">'+(+v.toFixed(2))+(o.suffix||"")+'</text>';}
+  o.categories.forEach((c,ci)=>{
+    const x0=pl+ci*cw+(cw-bw*n)/2;
+    o.series.forEach((sr,si)=>{
+      const v=sr.data[ci];const yy=y(v);
+      s+='<rect x="'+(x0+si*bw)+'" y="'+Math.min(yy,y(min))+'" width="'+(bw-2)+'" height="'+Math.abs(y(min)-yy)+'" fill="'+palette[si%palette.length]+'" opacity=".9"><title>'+esc(sr.name)+': '+v+(o.suffix||"")+'</title></rect>';
+      if(o.showValues) s+='<text x="'+(x0+si*bw+(bw-2)/2)+'" y="'+(yy-3)+'" font-size="9" text-anchor="middle" fill="var(--fg2)">'+v+'</text>';
+    });
+    s+='<text x="'+(pl+ci*cw+cw/2)+'" y="'+(H-pb+14)+'" font-size="10" text-anchor="middle" fill="var(--fg2)">'+esc(c)+'</text>';
+  });
+  if(o.xlabel) s+='<text x="'+(pl+(W-pl-pr)/2)+'" y="'+(H-pb+30)+'" font-size="10" text-anchor="middle" fill="var(--fg3)">'+esc(o.xlabel)+'</text>';
+  if(o.ylabel) s+='<text transform="translate(10,'+(pt+(H-pt-pb)/2)+') rotate(-90)" font-size="10" text-anchor="middle" fill="var(--fg3)">'+esc(o.ylabel)+'</text>';
+  s+='</svg>';
+  if(n>1) s+='<div class="legend">'+o.series.map((sr,i)=>'<span><i style="background:'+palette[i]+'"></i>'+esc(sr.name)+'</span>').join("")+'</div>';
+  return s;
+}
+function lineChart(o){
+  const W=560,H=o.height||240,pl=60,pr=10,pt=10,pb=54;
+  const all=o.series.flatMap(s=>s.data).concat(o.ref!=null?[o.ref]:[]);
+  const min=Math.min(...all)-0.5,max=Math.max(...all)+0.5;
+  const n=o.categories.length;
+  const x=i=>pl+(W-pl-pr)*(i+0.5)/n, y=v=>pt+(H-pt-pb)*(1-(v-min)/(max-min));
+  let s='<svg class="chart" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">';
+  for(let i=0;i<=4;i++){const v=min+(max-min)*i/4;s+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="var(--line)"/><text x="'+(pl-6)+'" y="'+(y(v)+4)+'" font-size="10" text-anchor="end" fill="var(--fg3)">'+v.toFixed(1)+(o.suffix||"")+'</text>';}
+  if(o.ref!=null) s+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+y(o.ref)+'" y2="'+y(o.ref)+'" stroke="var(--fg3)" stroke-dasharray="4 3"/><text x="'+(W-pr)+'" y="'+(y(o.ref)-4)+'" font-size="10" text-anchor="end" fill="var(--fg3)">'+esc(o.refLabel||"")+'</text>';
+  o.series.forEach((sr,si)=>{
+    const pts=sr.data.map((v,i)=>x(i)+","+y(v)).join(" ");
+    s+='<polyline points="'+pts+'" fill="none" stroke="'+palette[si]+'" stroke-width="2"/>';
+    sr.data.forEach((v,i)=>s+='<circle cx="'+x(i)+'" cy="'+y(v)+'" r="3" fill="'+palette[si]+'"><title>'+esc(sr.name)+' '+esc(o.categories[i])+': '+v+(o.suffix||"")+'</title></circle>');
+  });
+  o.categories.forEach((c,i)=>s+='<text x="'+x(i)+'" y="'+(H-pb+14)+'" font-size="10" text-anchor="middle" fill="var(--fg2)">'+esc(c)+'</text>');
+  if(o.xlabel) s+='<text x="'+(pl+(W-pl-pr)/2)+'" y="'+(H-pb+30)+'" font-size="10" text-anchor="middle" fill="var(--fg3)">'+esc(o.xlabel)+'</text>';
+  if(o.ylabel) s+='<text transform="translate(10,'+(pt+(H-pt-pb)/2)+') rotate(-90)" font-size="10" text-anchor="middle" fill="var(--fg3)">'+esc(o.ylabel)+'</text>';
+  s+='</svg><div class="legend">'+o.series.map((sr,i)=>'<span><i style="background:'+palette[i]+'"></i>'+esc(sr.name)+'</span>').join("")+'</div>';
+  return s;
+}
+
+// ----------------------------------------------------------------------------
+// content
+// ----------------------------------------------------------------------------
+const sections = {};
+
+sections["Overview"] = `
+${callout("info","Recommendation",P(`Do not build a single end-to-end "AI model". Build a layered hybrid that the in-play literature converges on and that your repo is already half-way to: a pre-match strength prior (Elo + serve/return skill), a point-level Markov engine whose serve probabilities are updated during the match with an empirical-Bayes rule, a gradient boosted calibrator on top that carries momentum, fatigue, conditions and form features, a separate retirement hazard overlay, and only then a market-comparison and staking layer. Deep sequence models are a later experiment, not the core. Reinforcement learning belongs in stake sizing and entry timing, not in win-probability estimation.`))}
+<div class="stats">
+  <div class="stat"><div class="v">0.497</div><div class="l">log loss, current Challenger GBM (2025-26 holdout, n=39,480 states)</div></div>
+  <div class="stat"><div class="v">82.3%</div><div class="l">set-1 winner closes out, Challenger (n=33,282 completed)</div></div>
+  <div class="stat warn"><div class="v">23.7%</div><div class="l">favourite comes back after losing set 1, Challenger</div></div>
+  <div class="stat danger"><div class="v">3.0%</div><div class="l">Challenger matches end in retirement (1,037 / 34,319)</div></div>
+</div>
+${cap("Source: data/research.db via python -m research live --level C and data/models/live_gbm_metrics.json (Sackmann Challenger + ATP, 2022-2026).")}
+
+<h2>What "the 1.0X favourite loses" actually is</h2>
+${P("The pattern you observed (short-priced player holds on; short-priced player folds on stamina) is not one phenomenon. It decomposes into measurable mechanisms, each with a different modelling answer. The sizes below are from published studies or from your own database.")}
+${table(["Mechanism","Measured size","Where from","How to model it"],[
+ ["Break volatility (WTA / Challenger)","Hold rate: ATP 78.6%, men's Challenger 74.1%, WTA 64.4%, women's Challenger 60.4%","livetennisapi hold-rate study, 2.3M service games","Tour- and tier-specific serve/return priors; dynamic serve updating; WTA gets its own calibrator"],
+ ["Prior was wrong, the match reveals it","Close-out after set 1 is 82-84% in every Elo-gap bucket; iid Markov with fixed Elo-derived serve probabilities predicts far higher for heavy favourites","Your Challenger tape (research.live)","Empirical-Bayes serve update (Kovalchik-Reid) + learned state calibrator; the GBM you already have does part of this"],
+ ["Retirement / injury","2.9% of Challenger matches (1.34 per 1,000 games); 4.8% medical withdrawals men's Challenger vs 3.4% ATP; your tape 3.0%","PLOS One 2024; J Sci Med Sport 2023; research.db","Separate hazard overlay with MTO as a conditional signal (Cutmore-Knottenbelt model), not folded into p_serve"],
+ ["Carry-over fatigue from previous match","-4.4 pp vs Elo expectation after a 31+ game win on 1 day rest; +3.4 pp after a 16-game win; slope halves at 2 days, gone at 3+","TennisEdge Lab, 218,890 player-matches (2023-26); Grand Slam study 1992-2011 agrees","Pre-match prior adjustment: games played in last match x rest days, plus 7/14-day minutes load"],
+ ["Within-match fatigue","First-serve speed 185 -> 181 km/h and 2nd-serve points won decline set 1 -> 5 on hard courts; rally length declines; effect absent on grass","Set-to-set variation study (AO/USO); Wimbledon study","Live features from point feed: 2nd-serve win% trend, DF rate trend, rally-length trend, time between points, cumulative minutes"],
+ ["Heat",">10% more double faults at 35C vs 15C; more retirements; lower win probability in the next match; markets mostly price it","NBER w31650 (177k matches)","Hourly WBGT at venue as a feature; expect small residual edge"],
+ ["Momentum","Men: +5-10 pp next-point after winning a point (causal, line-call quasi-experiment); women: no causal effect; break-point momentum disappears after changeovers","Gauriot & Page 2019 (Econ J); JoEP 2020","Short-window momentum features with interruption resets; treat as small, tour-specific, and let the calibrator decide"],
+ ["Market under-reaction after a break","Odds anticipate breaks up to 4 points early, but do not instantly price the post-break dip in the broken player's point rate","Easton & Uylangco 2010 (Betfair, AO 2007)","A state the model should price explicitly; verify with your own odds tape before relying on it"],
+])}
+
+<h2>The six best-of-three paths are implied, not separately predicted</h2>
+${P("A good in-play model outputs P(T1 wins the match) at every point state. The set-sequence combinations c1..c6 fall out of the same engine: c3 (T1, T2, T1) is P(T1 takes set 1) x P(T2 takes set 2 | 1-0) x P(T1 takes set 3 | 1-1). The chart shows that distribution from your research/markov.py engine under iid sets for four strength gaps. Two things to notice: the favourite's split-set wins (c3, c6) stay around 8-15% even when they are a heavy favourite, and the two ways the favourite loses (c4, c5) are each only 1-9%. That is the tail you are trying to price, and it is dominated by the mechanisms above, not by the scoring structure.")}
+${barChart({categories:["c1 T1,T1","c2 T2,T2","c3 T1,T2,T1","c4 T1,T2,T2","c5 T2,T1,T2","c6 T2,T1,T1"],series:[
+ {name:"Even (p_match 0.51)",data:[25.0,25.0,12.5,12.5,12.5,12.5]},
+ {name:"Slight fav (0.70)",data:[39.7,13.7,14.7,8.6,8.6,14.7]},
+ {name:"Clear fav (0.87)",data:[59.8,5.1,13.6,4.0,4.0,13.6]},
+ {name:"Heavy fav (0.97)",data:[79.9,1.1,8.5,1.0,1.0,8.5]}],suffix:"%",max:90,height:260,xlabel:"Set-sequence path (who wins each set, in order)",ylabel:"Probability (%)"})}
+${cap("Probability of each set-sequence path (%), pre-match, iid sets. Computed with research.markov p_win_set; T1 serve/return point probabilities 0.635/0.365, 0.655/0.385, 0.68/0.41, 0.71/0.44.")}
+
+<h2>Where the repo stands today</h2>
+${table(["Component","Status","Gap for the in-play goal"],[
+ ["Point -> game -> set -> match Markov chain (research/markov.py)","Done, cached, correct TB serve order","Serve probabilities are fixed for the whole match (Klaassen-Magnus 2003 assumption); no updating from points played"],
+ ["Elo + surface Elo prior (research/analyze.py)","Done (K=32, retirement K=16)","No serve/return split, no uncertainty, no fatigue or form adjustment; WTA not ingested"],
+ ["Serve profile from match-level stats (predictor.serve_profile)","Done, shrunk to tour mean","Built from aggregate match stats, not point sequences; no opponent adjustment"],
+ ["Challenger GBM calibrator (predictor.train_live_model)","Done; 0.497 log loss, AUC 0.84 on 2025-26","Trained only on two states (after set 1, at 1-1); features are score-boundary only; set-1 margin is the only in-match signal"],
+ ["Empirical in-play study (research/live.py)","Done: close-out, comeback, decider, clock, retirement buckets","Match-level only; cannot see breaks, serve runs, MTOs"],
+ ["Live feed (research/live_feed.py, ESPN)","Done: ATP/WTA game-level, points when exposed","No Challenger coverage, no server, no point events, no timestamps"],
+ ["Odds (tennis-data closes, Odds API snapshots)","Done: ATP closing lines","No in-play tape; no WTA/Challenger prices; cannot compute closing-line value in-play"],
+ ["Point-by-point training data","Missing","Needed for everything in-play: serve updating, momentum, fatigue, hazard"],
+ ["WTA data","Missing","tennis_wta results + WTA pbp; separate calibrator"],
+],["success","success","success","success","success","warning","warning","danger","danger"])}
+`;
+
+sections["Data"] = `
+${P("The single biggest blocker is point-level history. Everything you want to capture (energy drop, momentum, post-break dips, medical timeouts) happens between set boundaries, and the repo only sees set boundaries. These are the sources that exist, what they cover, and what each one buys you.")}
+${table(["Source","Coverage","Granularity","Access","Role in this project"],[
+ ["Sackmann tennis_atp + qual_chall (already ingested)","ATP + Challenger + qualifying, all years; you hold 2023-2026","Match result + aggregate serve stats","Free","Elo, surface Elo, serve profile, fatigue/workload features, retirement labels"],
+ ["Sackmann tennis_wta + wta_matches_qual_itf","WTA main tour, WTA qualifying, ITF women","Same schema as tennis_atp","Free","WTA Elo and serve profile; required before any WTA model"],
+ ["Sackmann tennis_pointbypoint","ATP, Challenger (CH), WTA, ITF main + qualifying, 2011-2017 (repo frozen Sept 2017)","Full point sequence per match: S/R/A/D tokens, ';' games, '.' sets, '/' TB serve change, plus minutes","Free","Tens of thousands of Challenger/WTA/ITF matches to train the serve-update rule, momentum and post-break features, and the state calibrator on every point state"],
+ ["Sackmann tennis_slam_pointbypoint","Grand Slams 2011-present (IBM Slamtracker / Infosys MatchBeats)","Per point: server, winner, serve number, speed, rally length, elapsed time, distance run (some events), break/set points","Free","Only public source with timing, rally length and distance: fit the within-match fatigue features here, then transfer the functional form"],
+ ["Sackmann Match Charting Project","~15k charted pro matches, ATP + WTA, all levels","Shot-by-shot, crowd-sourced","Free","Rally length and serve direction priors per player; optional"],
+ ["livetennisapi research corpus (Kaggle sample + full on application)","173,571 completed matches Jan 2023 - Aug 2026 across ATP, WTA, Challenger, ITF; 98.2% with point sequences; sackmann_id crosswalk","Point states with UTC capture timestamps","Free for non-commercial academic use on application; API tiers otherwise","Modern Challenger and WTA point data; the timestamps give between-point time, the best public fatigue proxy below Slam level"],
+ ["Betfair Historical Data (Match Odds, tennis)","April 2015 - present, all exchange tennis markets","Basic: 1-min last traded price, free. Advanced: 1 s, top-3 ladder, volume. Pro: 50 ms ticks, full ladder","Free / paid / paid","The only honest benchmark: market-implied probability per state, closing-line value, and a realistic backtest with suspensions and bet delay"],
+ ["tennis-data.co.uk closes (already ingested)","ATP + WTA main tour closing prices","Match-level","Free","Pre-match calibration check only"],
+ ["Sportradar Tennis API","ATP, WTA, Challenger, ITF live","Point-by-point timeline with server, serve fault, result, timestamp; MTO and retirement packets; 1 s TTL; push feeds","Commercial","Production live feed if you go live; official scout data, failover to game-by-game"],
+ ["tennis-api.com / livetennisapi live","ATP incl. Challenger and ITF; WTA incl. ITF","Live point-by-point, live odds across books, Socket/WebSocket on top tiers; livetennisapi publishes published_at vs event timestamp so you can measure your own latency","Paid tiers","Cheaper live feed for Challenger/WTA than Sportradar; verify coverage on the tournaments you care about"],
+ ["ESPN scoreboard (already used)","ATP/WTA","Game-level, occasionally points; no server, no timestamps","Free","Demo only; not a training or trading feed"],
+ ["Open-Meteo / ERA5-Land","Global hourly weather","Temperature, humidity, radiation, wind by venue coordinates","Free","WBGT / heat-index feature per match hour"],
+])}
+${callout("warn","Priority order",P("1) tennis_wta (one afternoon, same ingest path). 2) tennis_pointbypoint CH + WTA + ITF files: the parser is a few dozen lines and unlocks every in-play experiment on 2011-2017 data. 3) Apply for the livetennisapi corpus so the point model is trained on current Challenger and WTA play, not 2017. 4) Betfair Basic historical tennis: free, and without it you cannot say whether any model beats the market. 5) Slam pbp for fatigue feature fitting. Live feeds come last; a model that is not calibrated on history is not improved by a faster feed."))}
+<h3>Point sequence format you will parse</h3>
+${P("tennis_pointbypoint encodes a match as a string from the server's view: <b>S</b> server won, <b>R</b> returner won, <b>A</b> ace, <b>D</b> double fault; games are separated by \";\", sets by \".\", and \"/\" marks the serve change inside a tiebreak. Walking the string with the same state machine as research/markov.py produces one training row per point: score state, server, running serve/return rates, streaks, and the eventual winner. That is the row format the Trace paper and DeepTennis both train on.")}
+`;
+
+sections["Evidence"] = `
+${P("The literature on in-play tennis forecasting is small and consistent. The numbers below are the ones that should change design decisions.")}
+<div class="grid2">
+ <div><h3>Service hold rate by tour and tier</h3>
+ ${barChart({categories:["ATP","Chall (men)","ITF (men)","WTA","Chall (women)","ITF (women)"],series:[{name:"Service games held (%)",data:[78.62,74.1,70.26,64.36,60.4,58.93]}],suffix:"%",min:50,max:85,height:220,showValues:true,xlabel:"Tour / tier",ylabel:"Hold rate (%)"})}
+ ${cap("Share of service games held (%). Source: livetennisapi hold-rate study over 2,294,737 service games, 2023-2026. ATP/WTA match the widely published ~79% / ~64%.")}</div>
+ <div><h3>Next-day fatigue gradient vs Elo expectation</h3>
+ ${lineChart({categories:["<=16","17-19","20-22","23-26","27-30","31+"],series:[
+  {name:"1 day rest",data:[3.42,1.11,-0.48,-2.12,-2.59,-4.36]},
+  {name:"2 days rest",data:[2.13,0.35,0.24,-0.93,-1.22,-2.36]},
+  {name:"3+ days rest",data:[2.33,-0.46,-1.38,-2.52,-3.01,1.46]}],suffix:" pp",ref:0,refLabel:"Elo expectation",height:220,xlabel:"Total games in previous win",ylabel:"Win-rate residual (pp)"})}
+ ${cap("Win-rate residual vs rating expectation (percentage points) by games in the previous win and days of rest. Source: TennisEdge Lab, 218,890 ATP+WTA player-matches 2023-2026. The 3+ day / 31+ cell is small and not significant.")}</div>
+</div>
+<h3>What each modelling layer buys you (Grand Slam pbp, chronological test 2023-24)</h3>
+<div class="grid2">
+ <div>${barChart({categories:["25% of match","50%","75%"],series:[
+  {name:"Symmetric Markov",data:[68.5,77.0,85.4]},{name:"Elo-asymmetric Markov",data:[75.8,80.5,86.5]},{name:"Serve-shrink Markov",data:[75.6,79.5,87.2]},{name:"HGBM on live features",data:[69.4,79.2,87.4]},{name:"Trace (hybrid)",data:[76.1,82.2,88.3]}],suffix:"%",min:60,max:92,height:230,xlabel:"Match progress",ylabel:"Winner accuracy (%)"})}
+ ${cap("Winner accuracy (%) at match-progress checkpoints. Source: Xie & Muppidi, arXiv 2609.07617 (Sept 2026), 8,222 Slam matches, 1.5M point states, train 2011-21, test 2023-24.")}</div>
+ <div>${barChart({categories:["25% of match","50%","75%"],series:[
+  {name:"Symmetric Markov",data:[0.629,0.536,0.35]},{name:"Elo-asymmetric Markov",data:[0.521,0.455,0.31]},{name:"Serve-shrink Markov",data:[0.514,0.427,0.284]},{name:"HGBM on live features",data:[0.538,0.379,0.23]},{name:"Trace (hybrid)",data:[0.475,0.353,0.2]}],max:0.7,height:230,xlabel:"Match progress",ylabel:"Binary log loss (lower is better)"})}
+ ${cap("Log loss at the same checkpoints, same source. The GBM is worst early and best late among single models; the hybrid wins everywhere. This is the shape your repo's blend guesses at with hand weights (0.75/0.25 mid-game, 0.45/0.55 at set boundaries).")}</div>
+</div>
+<h3>Findings that should drive design</h3>
+${table(["Study","Finding","Design implication"],[
+ ["Klaassen & Magnus 2001 (JASA), 2003 (EJOR)","Points are not iid: winning the previous point raises P(win next); servers win fewer important points, weaker players more so. Deviations are small; iid is a good first-order forecast model. Importance of a point = P(win match | win point) - P(win match | lose point).","Keep the Markov chain as the backbone. Add point importance as a feature; expect momentum to be a correction, not the model."],
+ ["Kovalchik & Reid 2019 (Int J Forecasting)","Empirical-Bayes update of serve probabilities from in-match serve points, with pre-match parameters from Elo: 28% lower in-match serve prediction error, +4 pp win accuracy vs constant-serve model (2017 season). WTA serve estimates had larger error than ATP.","This is the first thing to add to research/markov.py. It is a few lines: p = (n r + k pi) / (n + k) with k tuned by match phase."],
+ ["Ingram 2019 (JQAS) and MathSport in-play slides","Point-based Bayesian hierarchical model with per-player serve and return skills on Gaussian random walks plus surface and tournament effects: 68.8% / 0.592 log loss vs 66.3% / 0.641 for other point-based models (ATP 2014). In-play: static Elo is a surprisingly strong baseline; serve-and-return Glicko predicts points best; Elo + beta-binomial updating gives the best match log loss; using uncertainty helps.","Upgrade the prior from one Elo number to serve skill, return skill, and their uncertainty. Uncertainty is what tells the updater how fast to trust live evidence."],
+ ["Easton & Uylangco 2010 (Int J Forecasting)","Betfair in-play prices track the Klaassen-Magnus model extremely closely; the market anticipates breaks up to four points early; it does not instantly price the post-break dip in the broken player's performance.","The market is the benchmark, not a thing to beat on average. Target specific states where it is slow: just after a break, during MTOs, in thin lower-tier markets."],
+ ["Brown 2014 (Econ J); Zurich courtsiding study","In-play mispricing between Betfair win and set markets is ~10x pre-match (5.3% average discrepancy). Prices absorb a point result within ~12-13 s; courtsiders account for ~60% of the move.","You are not competing on speed. Compete on better conditional probabilities at the states the crowd misprices, and size for it."],
+ ["Gauriot & Page 2019 (Econ J); Meier et al. 2020 (JoEP)","Causal momentum in men: +5-10 pp on the next point after winning one (up to +15 at 30-30 / deuce); none for women. Break-point momentum disappears after a changeover.","Momentum features: tour-specific, short windows, reset on changeovers and MTOs."],
+ ["Cutmore & Knottenbelt 2013","Retirement risk modelled as a Bernoulli injury process with exponentially distributed severity and a per-point damping ('run it off'); parameters inferred from the gap between Betfair match-odds and set-betting markets.","Keep retirement as a separate overlay with its own state; the match-odds payout rule changes what 'win' means when a player retires."],
+ ["PLOS One 2024 (retirements below tour level)","1.56 retirements per 1,000 games overall; 1.34 at Challenger; hard and clay double the risk vs grass.","Base hazard by tier and surface; your DB shows 3.0% at Challenger, which agrees."],
+ ["NBER w31650 (heat)","Hot conditions increase double faults and retirements, shorten rallies, and reduce next-match win probability; betting markets largely price the heat effect.","Include WBGT, but do not expect it to be the edge."],
+ ["Trace, arXiv 2609.07617 (2026); DeepTennis (Stanford CS230 2019)","Hybrid Markov + GBM reaches 77.8% all-point accuracy on a strict chronological split. DeepTennis LSTM's 79.5% was on a non-chronological split; under the same leaky split Trace reaches 81.3%.","Be suspicious of any in-play accuracy above ~80% on Slam data. Always split by time."],
+ ["2024 MCM Problem C papers (momentum, Wimbledon 2023)","Many EWMA/LSTM/XGBoost momentum papers report 94-99% 'swing' accuracy. These predict a smoothed momentum curve from features that include the same points, on one or a few matches.","Treat as feature-engineering inspiration (EWMA of point outcomes, SHAP on distance run), not as evidence of forecasting skill."],
+])}
+`;
+
+function group(title,intro,rows,open){
+  return '<details'+(open?' open':'')+'><summary>'+esc(title)+'<span>'+rows.length+' features</span></summary><p class="sub">'+esc(intro)+'</p>'+table(["Feature","Definition","Source","Available"],rows)+'</details>';
+}
+sections["Features"] = `
+${P('Every feature below is computable strictly from information available before the next point is played. The last column says whether the repo can compute it today ("now"), after the free data steps ("after pbp"), or only with a paid live feed ("live feed").')}
+${group("Pre-match strength prior","What the market already knows. These set the starting serve/return probabilities and the uncertainty around them.",[
+ ["Elo, surface Elo, Elo gap","Existing ratings; add a per-player rating variance (Glicko-style) so the updater knows how much to trust the prior","research.analyze","now"],
+ ["Serve skill, return skill","Latent per-player skills on a random walk, surface-adjusted and tournament-adjusted (Ingram); or a serve/return Glicko","tennis_atp/wta stats, pbp","after pbp"],
+ ["Pair point probabilities","P(T1 wins a point on serve) and on return, from the two skill vectors, clipped to tour ranges (ATP ~0.60-0.72, WTA ~0.52-0.64)","derived","now (crude), after pbp (proper)"],
+ ["Recent form","Exponentially weighted serve/return point win rate over the last 10-20 matches; wins vs Elo expectation over 30/90 days","tennis_atp/wta","now"],
+ ["Head-to-head and style","H2H count and net; handedness pairing; height; tournament level","tennis_atp/wta","now"],
+ ["Market prior (optional)","De-vigged pre-match price when available; strongest single pre-match predictor in Kovalchik 2016","tennis-data, Betfair","now for ATP/WTA"],
+],true)}
+${group("Live score state","The Markov state itself plus the engine's outputs. These are the backbone features for any calibrator.",[
+ ["Sets, games, points, server, tiebreak flag","Full state s = (S1,S2,G1,G2,P1,P2,server,tb)","feed / pbp","now"],
+ ["Markov p_match, p_set, p_game","Engine outputs under the current serve probabilities, plus logit transforms","research.markov","now"],
+ ["Point importance","P(win match | win point) - P(win match | lose point) (Morris / Klaassen-Magnus); flags break points, set points, match points","research.markov","now"],
+ ["Match progress","Points played, estimated fraction of match complete; needed because feature usefulness changes with progress (Trace)","feed","now"],
+ ["Serve-shrink p_match","Engine output after the empirical-Bayes serve update; the difference between it and the prior-only output is itself a feature","derived","after pbp (to tune kappa)"],
+],true)}
+${group("Live serve and return performance","What the match has revealed about today's level. Kovalchik-Reid showed this is the single most valuable in-match update.",[
+ ["Serve points won / played, per player","Running counts; shrunk toward prior with pseudo-count kappa (phase-dependent: large early, small late)","pbp / feed","after pbp"],
+ ["First-serve in %, aces, double faults","Running rates; DF-rate trend is a documented heat and fatigue marker","pbp (A/D tokens), feed","after pbp"],
+ ["Second-serve points won","Running rate and trend across sets; declines with fatigue on slow courts","Slam pbp, Sportradar","after pbp (Slam), live feed"],
+ ["Break points created / converted / saved","Counts and rates in this match","pbp / feed","after pbp"],
+ ["Return points won","Mirror of serve; Ingram's in-play slides show return skill carries signal the serve rate misses","pbp / feed","after pbp"],
+])}
+${group("Momentum (small, tour-specific)","Keep windows short and reset on interruptions. Expect a few points of calibration gain in men's matches and little in women's; let the calibrator decide.",[
+ ["Last-k point run","Points won by T1 in the last 4 / 8 / 12 points; net streak length","pbp / feed","after pbp"],
+ ["EWMA of point outcomes","Exponentially weighted point-win indicator with half-life ~6-10 points; also EWMA of serve points only","pbp / feed","after pbp"],
+ ["Games since last break, break-back flag","Whether the last break was immediately answered; post-break dip indicator (Easton-Uylangco)","pbp / feed","after pbp"],
+ ["Interruption reset","Changeover, set break, MTO, rain delay between the momentum event and now (Meier et al.)","feed timestamps","after pbp (changeovers), live feed (MTO)"],
+ ["Pressure-point record today","Break points and deuce points won vs expected; Klaassen-Magnus importance-weighted performance","pbp / feed","after pbp"],
+])}
+${group("Fatigue and energy","This is where the 'favourite folds in set 3' story lives. Split into carry-over (known pre-match) and within-match (revealed by the feed).",[
+ ["Previous-match load","Total games and minutes in the player's last match; days of rest; interaction of the two (gradient in the Evidence tab)","tennis_atp/wta","now"],
+ ["Tournament load","Matches, sets and minutes in the last 3 / 7 / 14 days; qualifying rounds played (Challenger qualifiers arrive with extra matches)","tennis_atp/wta qual_chall","now"],
+ ["Age and retirement history","Age; retirements and walkovers in the last 12 months; injury comeback flag (first tournament after a gap)","tennis_atp/wta","now"],
+ ["Elapsed match time","Minutes played so far; minutes in the current set; a 7-6 first set is not a 6-1 first set","feed timestamps","after pbp (minutes), live feed (per point)"],
+ ["Between-point time trend","Median seconds between points this set vs set 1; rises under heat and fatigue (BJSM 2014: ~10 s longer in heat)","Slam pbp elapsed_time, livetennisapi timestamps, Sportradar","after pbp (Slam), live feed"],
+ ["Rally-length trend","Mean rally count this set vs set 1; declines late in long matches","Slam pbp, Match Charting","after pbp (Slam only)"],
+ ["Serve-speed trend","First and second serve speed this set vs set 1","Slam pbp only","Slam only"],
+ ["Deciding-set record","Player's historical win rate in third sets vs expected; long-match win rate","tennis_atp/wta (already in live._player_inplay)","now"],
+])}
+${group("Court and conditions","Mostly priced by the market, but cheap to add and they interact with fatigue.",[
+ ["Surface and speed","Hard / clay / grass / indoor; tournament-level serve-hold rate as a court-speed proxy (Ingram tournament intercept)","tennis_atp/wta","now"],
+ ["Surface-specific form","Surface Elo gap; surface serve/return skill","research.analyze","now"],
+ ["Heat and humidity","Hourly temperature, humidity, radiation at venue; WBGT or heat index; indoor flag","Open-Meteo / ERA5","after geocoding venues"],
+ ["Altitude","Venue elevation (ball speed, serve dominance)","static table","after geocoding venues"],
+ ["Session","Day vs night, scheduled start hour, court assignment","feed","live feed"],
+])}
+${group("Retirement risk","Modelled separately. The output is P(T1 retires before match end) and P(T2 retires), which then changes the match-odds settlement.",[
+ ["Base hazard","Per-point retirement rate by tier, surface, sex (PLOS One 2024; your DB)","research.db","now"],
+ ["Medical timeout","MTO taken, by whom, when; retirement packet rules (Sportradar: MTO is conditional, not terminal)","Sportradar / tennis-api timelines","live feed"],
+ ["Collapse signature","Sudden drop in serve points won, serve speed, or a run of lost games after a timeout","pbp / feed","after pbp"],
+ ["Player history","Retirements in last 12 months; injury comeback flag","tennis_atp/wta","now"],
+ ["Market gap signal","Divergence between match-odds and set-betting implied probabilities (Cutmore-Knottenbelt)","Betfair","with odds feed"],
+])}
+${group("Market","Not model inputs for the probability (that would make the model a copy of the market). Used for benchmarking, edge calculation and staking.",[
+ ["Live implied probability","De-vigged mid of best back / best lay; last traded price","Betfair / tennis-api odds","with odds feed"],
+ ["Model minus market","Edge in probability points and in expected log-growth terms","derived","with odds feed"],
+ ["Liquidity and spread","Matched volume, back-lay spread; Challenger and WTA 125 markets are thin","Betfair","with odds feed"],
+ ["Suspension and delay","Market suspended flag, in-play bet delay (typically ~5 s on exchanges)","Betfair","with odds feed"],
+])}
+`;
+
+sections["Models"] = `
+${P("Candidate model families, what each one captures, what it needs, and the role I recommend for it. The verdict column is the proposal.")}
+${table(["Family","What it captures","Data needed","Evidence","Verdict"],[
+ ["M1. iid point Markov chain (have)","Scoring structure exactly; converts two serve probabilities into P(point/game/set/match) at any state","None beyond score","Klaassen-Magnus 2003; Easton-Uylangco show markets track it","Keep as the backbone of everything"],
+ ["M2. Dynamic serve updating (empirical Bayes / beta-binomial)","Today's level: shrinks prior serve probability toward observed in-match rate as evidence accumulates","Point sequences to tune kappa by phase and tour","Kovalchik-Reid: -28% serve error, +4 pp accuracy; Ingram: Elo + beta-binomial best log loss","Add first. Smallest change, largest gain"],
+ ["M3. Bayesian serve/return skill prior (Ingram) or serve-return Glicko","Separate serve and return ability with uncertainty, surface and tournament effects, time drift","Match-level serve stats (have) or pbp","68.8% / 0.592 vs 66.3% / 0.641 on ATP 2014; uncertainty improves in-play updating","Replace single Elo as the prior in phase 2; keep Elo as a feature"],
+ ["M4. Gradient-boosted state calibrator (have, narrow)","Non-linear corrections the chain misses: momentum, fatigue, conditions, form, prior mis-specification; learned blend weights","Point-level training rows with the engine outputs as features","Trace: best at every checkpoint; your GBM already lands at 0.497 log loss on two states","Retrain on every point state with the Features tab; this becomes the main model output"],
+ ["M5. Sequence model (GRU / small Transformer over the point stream)","Patterns in the order of points that hand features miss; learned momentum","Hundreds of thousands of point sequences; careful chronological splits","DeepTennis 79.5% (leaky split); ATennision 94% on 2023 Wimbledon (momentum target, not forecasting); Trace beats or matches it with a GBM","Phase 4 experiment only. Feed its output as one more feature into M4 and keep it if log loss improves on a time split"],
+ ["M6. Retirement hazard overlay","Probability each player cannot finish; MTO dynamics; settlement rules","Retirement labels (have), MTO events (live feed), market-gap signal (Betfair)","Cutmore-Knottenbelt; PLOS One base rates; your 3.0%","Separate model, combined at the end: p_win_settled = f(p_match, p_ret_1, p_ret_2, payout rule)"],
+ ["M7. Market model","What the crowd believes right now; the benchmark for closing-line value","Betfair historical / live odds","Easton-Uylangco; Brown 2014","Benchmark and edge calculation, never a feature for the probability model"],
+ ["M8. Staking / execution policy (RL or constrained Kelly)","How much to stake, when to enter, when to exit, given edge, uncertainty, liquidity, delay","A validated probability model plus an odds tape with latency","Fractional Kelly literature; risk-constrained Kelly (Busseti et al.); RL execution guides","Start with quarter-Kelly on edge above a threshold; RL only after a year of paper-traded tape exists"],
+])}
+${callout("warn","What not to build",P("A CNN: tennis state is a small discrete tuple, not a grid. An end-to-end deep network as the primary model: with tens of thousands of matches it will not beat Markov + boosted trees on a time split and it loses the calibration structure the chain gives you for free. Reinforcement learning for the win probability: the outcome does not depend on your actions, so it is a supervised problem; RL is for the staking policy. An LLM: there is no text signal here. Any model whose reported in-play accuracy exceeds about 80% on Slam data without a chronological split."))}
+<h3>M2 in detail: the serve update you should add to research/markov.py</h3>
+${P("Let &pi;<sub>i</sub> be the pre-match probability that player i wins a point on serve (from the prior), r<sub>i</sub> the observed in-match serve point win rate after n<sub>i</sub> serve points, and &kappa; a pseudo-count. The live estimate is <code>p_i = (n_i r_i + &kappa; &pi;_i) / (n_i + &kappa;)</code>. Kovalchik and Reid fit the weighting empirically; the 2026 Trace study selected &kappa; of 640 at 25% progress, 160 at 50%, and 40 at 75%, i.e. trust the prior heavily early and the match heavily late. Fit &kappa; separately for ATP, Challenger and WTA on the point data, and feed both the prior-only and the updated Markov outputs to the calibrator. A Bayesian version uses a Beta(&kappa;&pi;, &kappa;(1-&pi;)) prior and yields the same mean plus a variance you can pass as a feature.")}
+<h3>M4 in detail: retraining the calibrator on every point state</h3>
+${P("The current GBM sees two states per match. After the pbp step it should see every point state in every match (the Trace paper's 1.5M rows came from 8.2k matches). Keep HistGradientBoosting; the feature vector becomes [p_markov_prior, p_markov_updated, their logits, their difference, score state, progress, live serve/return rates and counts, momentum window features, fatigue features, conditions, prior features]. Train one model per tour (ATP+Challenger men; WTA+Challenger women) and evaluate per phase. Because rows from the same match are correlated, split by match and by date, never by row. Monotone constraints on p_markov_updated prevent the tree from inverting the chain in sparse states.")}
+<h3>M6 in detail: retirement overlay</h3>
+${P("Model per-point hazard h<sub>i</sub>(t) = base(tier, surface, sex) &times; multiplier(player history) &times; spike(MTO at t<sub>0</sub>, decaying with a damping factor) &times; collapse signature. Simulate or integrate the remaining match to obtain P(i retires before the end). Then combine: under a book that voids on retirement before set 1 completes and pays after, P(T1 wins settled) = P(T1 wins on court and nobody retires) + P(T2 retires after the void window). This is why a short-priced favourite can be a bad bet even when the point model agrees they are better.")}
+<h3>M8 in detail: staking</h3>
+${P("Kelly fraction f = (p&middot;o - 1)/(o - 1) for decimal odds o and model probability p; use a quarter of it, cap per match, and only bet when p - p<sub>market</sub> exceeds a threshold that scales with the model's uncertainty for that state. Half-Kelly keeps about 75% of the growth rate with far smaller drawdowns, and probability estimates here are imprecise. An RL execution layer (state: odds, position, progress, edge, bankroll; action: stake or wait) is reasonable once you have a year of tape to simulate on, and should be constrained by the same hard limits.")}
+`;
+
+function archSvg(){
+  const cols=[20,330,640];const W=910,H=360;const bw=250,bh=52;
+  const nodes={
+   hist:[0,0,"Historical data","Sackmann results + pbp, livetennisapi"],
+   wx:[0,1,"Conditions","Venue, surface, WBGT"],
+   live:[0,2,"Live point feed","Sportradar / tennis-api / ESPN (demo)"],
+   odds:[0,3,"Odds tape","Betfair historical / live"],
+   prior:[1,0,"Strength prior","Elo + serve/return skill + fatigue carry-over"],
+   markov:[1,1,"Point Markov engine","iid chain with empirical-Bayes serve update"],
+   calib:[1,2,"State calibrator","GBM per tour on every point state"],
+   hazard:[1,3,"Retirement hazard","Base x history x MTO spike x collapse"],
+   out:[2,0,"Probability bundle","p_point, p_game, p_set, p_match, p_retire, paths, CI"],
+   edge:[2,1,"Market compare","De-vig, edge, CLV, liquidity"],
+   stake:[2,2,"Staking policy","Fractional Kelly / RL execution, hard limits"]};
+  const pos=id=>{const n=nodes[id];return {x:cols[n[0]],y:30+n[1]*80};};
+  const edges=[["hist","prior"],["hist","calib"],["hist","hazard"],["wx","prior"],["wx","calib"],["live","markov"],["live","calib"],["live","hazard"],["prior","markov"],["markov","calib"],["calib","out"],["hazard","out"],["out","edge"],["odds","edge"],["edge","stake"]];
+  let s='<svg class="chart" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg"><defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="var(--fg3)"/></marker></defs>';
+  edges.forEach(([a,b])=>{const A=pos(a),B=pos(b);
+    if(nodes[a][0]===nodes[b][0]){
+      s+='<line x1="'+(A.x+bw/2)+'" y1="'+(A.y+bh)+'" x2="'+(B.x+bw/2)+'" y2="'+B.y+'" stroke="var(--fg3)" marker-end="url(#ar)"/>';
+    } else {
+      s+='<path d="M'+(A.x+bw)+','+(A.y+bh/2)+' C'+(A.x+bw+40)+','+(A.y+bh/2)+' '+(B.x-40)+','+(B.y+bh/2)+' '+B.x+','+(B.y+bh/2)+'" fill="none" stroke="var(--fg3)" stroke-opacity=".7" marker-end="url(#ar)"/>';
+    }});
+  Object.entries(nodes).forEach(([id,n])=>{const p=pos(id);const core=id==="markov"||id==="calib";
+    const fill=n[0]===0?"var(--bg)":n[0]===1?"var(--fill)":"var(--fill2)";
+    s+='<rect x="'+p.x+'" y="'+p.y+'" width="'+bw+'" height="'+bh+'" rx="6" fill="'+fill+'" stroke="'+(core?"var(--accent)":"var(--line)")+'" stroke-width="'+(core?1.6:1)+'"/>';
+    s+='<text x="'+(p.x+10)+'" y="'+(p.y+20)+'" font-size="12" font-weight="600" fill="var(--fg)">'+esc(n[2])+'</text>';
+    s+='<text x="'+(p.x+10)+'" y="'+(p.y+38)+'" font-size="10" fill="var(--fg3)">'+esc(n[3])+'</text>';});
+  return '<div class="arch">'+s+'</svg></div>';
+}
+sections["Architecture"] = `
+${P("Left to right: data, models, decisions. The two outlined boxes are the core and both already exist in the repo in a reduced form. Arrows are data flow at inference time; training flows are the same arrows from the historical sources.")}
+${archSvg()}
+${cap("Proposed architecture. Outlined: the Markov engine and the state calibrator, which produce the number everything else consumes.")}
+<div class="grid2">
+ <div><h3>Output contract per point</h3>
+ ${table(["Field","Meaning"],[
+  ["p_point, p_game, p_set","From the engine with updated serve probabilities"],
+  ["p_match_prior","Engine with pre-match serve probabilities only"],
+  ["p_match_updated","Engine after empirical-Bayes update"],
+  ["p_match","Calibrator output; the headline number"],
+  ["p_retire_1, p_retire_2","Hazard overlay, before match end"],
+  ["p_settled","P(T1 is paid as winner) under the book's retirement rule"],
+  ["paths","c1..c6 distribution from the current state"],
+  ["ci_low, ci_high","Uncertainty from prior variance and sample size (drives stake threshold)"],
+  ["market_p, edge, liquidity","When an odds feed is attached"],
+  ["flags","post_break, mto_active, heat_high, fatigue_carryover, thin_market"]])}</div>
+ <div><h3>Tour-specific handling</h3>
+ ${P("WTA and women's Challenger are not a parameter change. Hold rates of 60-64% mean breaks are routine, so a break is weaker evidence and the Markov curve is flatter and more volatile; Kovalchik-Reid and Trace both report larger serve-estimate error and larger fluctuation on WTA. Fit kappa, the calibrator and the momentum features separately per sex; drop the causal momentum prior for women; weight return performance more; expect a wider confidence band and therefore a higher edge threshold before staking.")}
+ <h3>Latency</h3>
+ ${P("Exchange prices absorb a point inside ~12-13 s and courtsiders take most of that move; exchanges add a ~5 s in-play delay and books suspend between points. The design therefore never relies on being first to a point. It relies on having a better conditional probability in states that persist for a game or more: after a break, during and after an MTO, in deciding sets with a fatigue asymmetry, and in thin Challenger / WTA 125 markets.")}
+ <h3>Serving</h3>
+ ${P("The existing FastAPI app can host it: one process holds the cached Markov tables, the per-tour GBMs and the hazard model; the feed adapter emits normalised point events; each event triggers a recompute (the chain is memoised, the GBM is microseconds). Store every emitted bundle with the feed timestamp so the paper-trading log is the next training set.")}</div>
+</div>
+`;
+
+sections["Evaluation"] = `
+${P("Accuracy is the wrong headline metric for an in-play model: it is dominated by the states where the result is already obvious. Judge the model on probability quality by phase, by slice, and against the market.")}
+${table(["Protocol element","Rule","Why"],[
+ ["Split","Chronological, by match date: train to end of Y-2, validate Y-1, test Y and later; never split rows of one match across sets","Rows within a match are correlated; non-chronological splits inflated DeepTennis by ~4 pp"],
+ ["Primary metrics","Log loss and Brier at 10%, 25%, 50%, 75%, 90% match progress; expected calibration error with reliability plots per checkpoint","This is where Trace, serve-shrink and the GBM separate; accuracy hides it"],
+ ["Slices","ATP vs Challenger vs WTA; surface; favourite down a set; just after a break (next 8 points); after an MTO; deciding set with fatigue asymmetry; thin markets","Edge, if any, is in specific states; average metrics will not show it"],
+ ["Baselines","Symmetric Markov; static-Elo Markov (what the repo does now); serve-shrink Markov; market-implied probability from Betfair LTP","The market baseline is the only one that matters commercially"],
+ ["Market comparison","Closing-line value in probability points per bet; log-growth of a quarter-Kelly paper portfolio with a ~10 s execution delay and the market suspended during points; both with and without commission","A model can beat Elo and still lose to the market after juice and delay"],
+ ["Retirement handling","Evaluate p_settled, not just p_match, on the book's actual rule; report performance on matches that ended in retirement separately","Retirements are ~3% of matches but a large share of 'favourite at 1.0X lost' tickets"],
+ ["Leakage audit","Every feature must be computable from events with timestamp < current point; freeze feature code per experiment; re-derive Elo as-of date","The largest risk in this kind of project is accidental future information"],
+ ["Paper trading","Minimum one full season of logged predictions and prices before any stake; track calibration drift monthly","Models decay as fields and markets change"],
+])}
+${callout("danger","Honest limits",P("In-play tennis markets are close to efficient on average and the people in them have faster data than you. A well-built hybrid will produce better probabilities than static Elo and roughly match the market; the commercial case rests on a handful of states in thin markets, and only a Betfair tape can tell you whether that edge survives commission and delay. Public point data at Challenger and WTA level is either from 2011-2017 or requires an application for access; Slam data is the only public source with timing and rally length. Finally, the existing README is explicit that this desk does not log into Stake, scrape it, or place bets; any automation layer should keep that boundary unless you have confirmed the platform's terms and your local legal position."))}
+`;
+
+sections["Roadmap"] = `
+${P("Six phases, each ending in a measurable gate. Phases 0-2 use only free data and build on files that already exist.")}
+${table(["Phase","Effort","Build","Exit criterion"],[
+ ["0. Data foundation","1 week","Ingest tennis_wta + qual_itf through research.ingest; parse tennis_pointbypoint (CH, WTA, ITF, ATP) into a points table keyed to Sackmann ids; add venue geocodes and hourly weather; apply for the livetennisapi corpus; download Betfair Basic tennis","points table with >30k matches; every point row carries state, server, outcome, running rates; WTA Elo rebuilt"],
+ ["1. Dynamic Markov","1 week","Add the empirical-Bayes serve update to research.markov; fit kappa per tour and phase on the points table; add point importance; expose p_match_prior and p_match_updated","Log loss at 50% progress beats static-Elo Markov on 2016-17 Challenger and WTA pbp; reproduce the Kovalchik-Reid direction"],
+ ["2. Full-state calibrator","2 weeks","Rebuild predictor._collect_rows to emit every point state; add live serve/return, momentum, carry-over fatigue, conditions and form features; one GBM per tour with monotone constraint on p_match_updated; per-phase and per-slice evaluation harness","Beats phase 1 on log loss at every checkpoint on a chronological split; calibration plots within 2-3 pp per bin; slices reported"],
+ ["3. Retirement overlay and settlement","1 week","Base hazard by tier/surface/sex from research.db; player-history multiplier; MTO spike with damping; p_settled under a configurable payout rule; retirement-match slice in the evaluation","p_settled improves Brier on matches that ended in retirement without hurting the rest"],
+ ["4. Market benchmark and paper trading","2 weeks + a season","Align Betfair LTP to point states by timestamp; compute market log loss per checkpoint; CLV and quarter-Kelly paper portfolio with delay and commission; log live bundles from the existing FastAPI app on ATP/WTA (ESPN) and on a Challenger feed if licensed","You can state, with numbers, whether the model has positive CLV in any slice; drift dashboard running"],
+ ["5. Experiments","ongoing","Serve/return skill prior (Ingram-style) replacing single Elo; GRU/Transformer over the point stream as an extra calibrator feature; within-match fatigue features transferred from Slam pbp; RL execution policy on the paper-trading tape","Each experiment is kept only if it lowers test log loss or raises CLV on a time split"],
+])}
+<h3>Immediate next steps in this repo</h3>
+<div class="card"><div class="hd"><span>research/ changes</span><span>phase 0-1</span></div><div class="bd">
+<p><code>research/ingest.py</code>: add tennis_wta and wta_matches_qual_itf to the Sackmann loop (same columns); add a pbp ingester for tennis_pointbypoint files into a points table.</p>
+<p><code>research/markov.py</code>: add update_serve(prior, n, wins, kappa) and thread updated probabilities through match_from_state; add importance(state).</p>
+<p><code>research/predictor.py</code>: emit every point state in _collect_rows; split features into prior / live / momentum / fatigue / conditions groups; train per tour; evaluate per phase and slice.</p>
+<p><code>research/live.py</code>: keep the empirical study, but compute it from the points table once available (post-break, MTO, deciding-set slices).</p>
+<p>New <code>research/hazard.py</code> for the retirement overlay and <code>research/market.py</code> for Betfair alignment, de-vig and CLV.</p>
+</div></div>
+<h3>Key references</h3>
+<ul style="font-size:13px;color:var(--fg2)">
+<li>Klaassen & Magnus, "Are points in tennis iid?" JASA 2001; "Forecasting the winner of a tennis match" EJOR 2003.</li>
+<li>Kovalchik & Reid, "A calibration method with dynamic updates for within-match forecasting of wins in tennis", Int J Forecasting 2019.</li>
+<li>Ingram, "A point-based Bayesian hierarchical model to predict the outcome of tennis matches", JQAS 2019; github.com/martiningram/tennis_bayes_point_based.</li>
+<li>Easton & Uylangco, "Forecasting outcomes in tennis matches using within-match betting markets", Int J Forecasting 2010.</li>
+<li>Brown, "Information processing constraints and asset mispricing", Econ J 2014.</li>
+<li>Gauriot & Page, "Does success breed success?", Econ J 2019; Meier et al., J Econ Psychology 2020.</li>
+<li>Cutmore & Knottenbelt, "Quantitative models for retirement risk in professional tennis", 2013.</li>
+<li>Xie & Muppidi, "Forecasting the Winner of a Live Tennis Match", arXiv 2609.07617 (2026); github.com/cx-57/live-tennis-research.</li>
+<li>Lerner, Badri, Monogue, "DeepTennis", Stanford CS230 2019.</li>
+<li>PLOS One 2024, retirements in second- and third-tier tournaments; NBER w31650, "Game, Sweat, Match".</li>
+<li>Data: github.com/JeffSackmann (tennis_atp, tennis_wta, tennis_pointbypoint, tennis_slam_pointbypoint); livetennisapi.com; historicdata.betfair.com.</li>
+</ul>
+`;
+
+// ----------------------------------------------------------------------------
+// render
+// ----------------------------------------------------------------------------
+const order=["Overview","Data","Evidence","Features","Models","Architecture","Evaluation","Roadmap"];
+const nav=document.getElementById("nav"),root=document.getElementById("root");
+order.forEach((k,i)=>{
+  const b=document.createElement("button");b.textContent=k;b.dataset.k=k;if(i===0)b.className="active";
+  b.onclick=()=>{location.hash=k;show(k);};nav.appendChild(b);
+  const s=document.createElement("section");s.id="s-"+k;s.innerHTML=sections[k];if(i===0)s.className="active";root.appendChild(s);
+});
+function show(k){
+  [...nav.children].forEach(b=>b.className=b.dataset.k===k?"active":"");
+  [...root.children].forEach(s=>s.className=s.id==="s-"+k?"active":"");
+  window.scrollTo(0,0);
+}
+// "#roadmap", "#Roadmap" and "#ROADMAP" all open the Roadmap section; unknown hashes leave the page as it is.
+function fromHash(){
+  const h=decodeURIComponent(location.hash.slice(1)).toLowerCase();
+  const k=order.find(o=>o.toLowerCase()===h);
+  if(k)show(k);
+}
+fromHash();
+window.addEventListener("hashchange",fromHash);
+</script>
+</body>
+</html>

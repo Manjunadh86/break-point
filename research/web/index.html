@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Break Point — Challenger research desk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="mark">Break <span>Point</span></div>
+      <div class="tag">Research only · no auto bets</div>
+      <nav>
+        <button class="active" data-go="engine">Point engine<small>Any score, any point, per segment</small></button>
+        <button data-go="live">Live assistant<small>Next point / game / set / match</small></button>
+        <button data-go="inplay">In-play clock<small>When probability actually moves</small></button>
+        <button data-go="matchup">Matchup lab<small>Elo, form, H2H, your line</small></button>
+        <button data-go="challenger">Challenger tape<small>Recent results + upset rates</small></button>
+        <button data-go="market">Odds desk<small>ATP close calibration + snapshots</small></button>
+        <button data-go="watch">Watch / SRL<small>Pin lines you type in yourself</small></button>
+      </nav>
+      <div class="stats">
+        <div class="stat"><b id="s-matches">—</b><span>matches loaded</span></div>
+        <div class="stat"><b id="s-chall">—</b><span>challenger matches</span></div>
+        <div class="stat"><b id="s-players">—</b><span>players</span></div>
+        <div class="stat"><b id="s-odds">—</b><span>ATP closing lines</span></div>
+        <div class="stat"><b id="s-latest">—</b><span>latest result date</span></div>
+      </div>
+      <p class="disclaimer">Public ATP / Challenger results via the Sackmann archive. Closing odds via tennis-data.co.uk. You decide every stake.</p>
+    </aside>
+
+    <main class="stage">
+      <section class="panel active" data-panel="engine">
+        <h1>Price this exact point.</h1>
+        <p class="lede">Pick a match from the public scoreboard, or type one. The engine picks the event segment (men / women, event size), updates each player's serve from the points played, runs the calibrator for that segment, and overlays retirement risk. Every number below is explained by the one above it.</p>
+        <div class="card" id="engine-live">
+          <div class="row" style="justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+            <div><strong>Live matches</strong> <span class="note" id="el-meta">Loading public scoreboard…</span></div>
+            <div class="row" style="gap:14px;align-items:center">
+              <label class="switch">Challenger / 125 only <input type="checkbox" id="el-chall" checked /></label>
+              <label class="switch">Show upcoming <input type="checkbox" id="el-pre" /></label>
+              <button type="button" class="mini" id="el-refresh">Refresh</button>
+            </div>
+          </div>
+          <table>
+            <thead><tr><th>Event</th><th>Match</th><th>Score</th><th>Serving</th><th>Surface</th><th></th></tr></thead>
+            <tbody id="el-table"><tr><td colspan="6" class="note">Loading…</td></tr></tbody>
+          </table>
+          <p class="note" id="el-note"></p>
+          <div class="row" id="el-follow" style="display:none;align-items:center;gap:12px">
+            <span id="el-follow-text"></span>
+            <button type="button" class="mini" id="el-stop">Stop following</button>
+          </div>
+        </div>
+        <form id="engine-form" class="card">
+          <div class="row">
+            <label>Player 1<input id="e-p1" required placeholder="Learner Tien" /></label>
+            <label>Player 2<input id="e-p2" required placeholder="Ethan Quinn" /></label>
+            <label>Tour
+              <select id="e-tour">
+                <option value="CH">Challenger</option>
+                <option value="ATP">ATP</option>
+                <option value="WTA">WTA</option>
+                <option value="ITF">ITF women</option>
+              </select>
+            </label>
+            <label>Event size
+              <select id="e-tier">
+                <option value="">Infer from rankings</option>
+                <option value="big">Big (strong field / $35K+)</option>
+                <option value="mid">Mid</option>
+                <option value="small">Small (weak field / $10–25K)</option>
+              </select>
+            </label>
+            <label>Event name<input id="e-event" placeholder="Pune (optional, looks up the tier)" /></label>
+            <label>Surface
+              <select id="e-surface">
+                <option value="">Unknown</option>
+                <option>Hard</option>
+                <option>Clay</option>
+                <option>Grass</option>
+                <option>Carpet</option>
+              </select>
+            </label>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <label>Sets P1–P2
+              <select id="e-sets">
+                <option value="0-0">0–0</option>
+                <option value="1-0">1–0</option>
+                <option value="0-1">0–1</option>
+                <option value="1-1">1–1</option>
+              </select>
+            </label>
+            <label>Games P1–P2<input id="e-games" value="0-0" placeholder="3-4" /></label>
+            <label>Points P1–P2<input id="e-points" value="0-0" placeholder="30-40, AD-40, or 3-5 in a TB" /></label>
+            <label>Server
+              <select id="e-server">
+                <option value="1">P1 serving</option>
+                <option value="2">P2 serving</option>
+              </select>
+            </label>
+            <label class="switch">Tiebreak now<input type="checkbox" id="e-tb" /></label>
+            <label>Previous set (P1 view)<input id="e-prev" placeholder="3-6" /></label>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <label>P1 serve pts won/played<input id="e-sv1" placeholder="25/40" /></label>
+            <label>P2 serve pts won/played<input id="e-sv2" placeholder="30/42" /></label>
+            <label>Point streak (+P1 / −P2)<input id="e-streak" type="number" value="0" /></label>
+            <label>Games since P1 MTO<input id="e-mto1" type="number" step="0.5" min="0" placeholder="—" /></label>
+            <label>Games since P2 MTO<input id="e-mto2" type="number" step="0.5" min="0" placeholder="—" /></label>
+            <label>Retirement rule
+              <select id="e-rule">
+                <option value="ball_served">Ball served (stands)</option>
+                <option value="one_set">One set completed</option>
+                <option value="match">Match must finish</option>
+              </select>
+            </label>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <label>Price P1<input id="e-price1" type="number" step="0.01" min="1.01" placeholder="3.40" /></label>
+            <label>Price P2<input id="e-price2" type="number" step="0.01" min="1.01" placeholder="1.35" /></label>
+            <label class="switch">Write to paper log<input type="checkbox" id="e-log" /></label>
+            <button class="cta" type="submit">Price this point</button>
+          </div>
+        </form>
+        <div id="engine-out"></div>
+        <div class="card" id="engine-model" style="margin-top:16px"></div>
+        <div class="card" style="margin-top:16px">
+          <div class="row" style="justify-content:space-between;align-items:baseline">
+            <h3 style="margin:0">Your logged quotes</h3>
+            <span class="note" id="paper-summary">—</span>
+          </div>
+          <p class="note">Tick “Write to paper log” when you price a point, then come back and record who won. The summary scores the model against the prior and the market on what you settled.</p>
+          <table>
+            <thead><tr><th>#</th><th>When</th><th>Match</th><th>Segment</th><th>State</th><th>Model</th><th>Price</th><th>Result</th></tr></thead>
+            <tbody id="paper-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="live">
+        <h1>What happens next from this score?</h1>
+        <p class="lede">Pick a live match once. The public scoreboard fills the names, sets, and games. We re-price every few seconds. You should not be typing during a point.</p>
+        <div class="card" id="slate-box">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <div>
+              <strong id="slate-title">Live slate</strong>
+              <div class="note" id="slate-meta">Loading public ATP/WTA scores…</div>
+            </div>
+            <label class="switch">Challenger / 125 only
+              <input type="checkbox" id="slate-chall" checked />
+            </label>
+            <label class="switch">Auto-follow first live match
+              <input type="checkbox" id="auto-follow" checked />
+            </label>
+          </div>
+          <table>
+            <thead>
+              <tr><th></th><th>Match</th><th>Event</th><th>Score</th><th>Status</th></tr>
+            </thead>
+            <tbody id="slate-table"></tbody>
+          </table>
+        </div>
+        <div id="live-lock" class="card" style="margin-top:16px;display:none"></div>
+        <details class="card" style="margin-top:16px">
+          <summary>Manual override (only if the feed is late)</summary>
+        <form id="forecast-form">
+          <div class="row">
+            <label>P1 (e.g. underdog)<input id="f-p1" required placeholder="Alexander Donski" /></label>
+            <label>P2<input id="f-p2" required placeholder="Philip Henning" /></label>
+            <label>Sets P1–P2
+              <select id="f-sets">
+                <option value="0-0">0–0</option>
+                <option value="0-1" selected>0–1 (P1 dropped set 1)</option>
+                <option value="1-0">1–0</option>
+                <option value="1-1">1–1</option>
+              </select>
+            </label>
+            <label>Games P1–P2<input id="f-games" value="0-0" placeholder="3-4" /></label>
+            <label>Points P1–P2
+              <select id="f-points">
+                <option value="0-0">0–0</option>
+                <option value="15-0">15–0</option>
+                <option value="30-0">30–0</option>
+                <option value="40-0">40–0</option>
+                <option value="0-15">0–15</option>
+                <option value="0-30">0–30</option>
+                <option value="0-40">0–40</option>
+                <option value="15-15">15–15</option>
+                <option value="30-30">30–30</option>
+                <option value="40-40">40–40</option>
+                <option value="30-40">30–40</option>
+                <option value="40-30">40–30</option>
+                <option value="AD-40">AD–40</option>
+                <option value="40-AD">40–AD</option>
+              </select>
+            </label>
+            <label>Server
+              <select id="f-server">
+                <option value="p1">P1 serving</option>
+                <option value="p2">P2 serving</option>
+              </select>
+            </label>
+            <label>Surface
+              <select id="f-surface">
+                <option value="">Overall</option>
+                <option>Clay</option>
+                <option>Hard</option>
+                <option>Grass</option>
+              </select>
+            </label>
+            <label>Set 1 games<input id="f-set1" placeholder="4-6 or 6-7" /></label>
+            <label>Live P1<input id="f-line-1" type="number" step="0.01" min="1.01" placeholder="4.50" /></label>
+            <label>Live P2<input id="f-line-2" type="number" step="0.01" min="1.01" placeholder="1.22" /></label>
+            <button class="cta" type="submit">Predict from here</button>
+          </div>
+        </form>
+        </details>
+        <div id="forecast-out"></div>
+        <div class="card" id="model-card" style="margin-top:18px"></div>
+      </section>
+
+      <section class="panel" data-panel="inplay">
+        <h1>When does the number actually change?</h1>
+        <p class="lede">Challenger best-of-3 only. The set-1 winner still closes about 82% of the time — every year from 2023 through mid-2026. Comebacks are loud; they are not the tape. Paste a live price after set 1 and compare it to that base rate, not to the last two nights you watched.</p>
+        <div class="row" style="margin-bottom:16px">
+          <label>Tour
+            <select id="live-level">
+              <option value="C">Challenger</option>
+              <option value="ATP">ATP tour</option>
+            </select>
+          </label>
+          <label>Surface
+            <select id="live-surface">
+              <option value="">All</option>
+              <option>Clay</option>
+              <option>Hard</option>
+              <option>Grass</option>
+            </select>
+          </label>
+        </div>
+        <div id="live-kpis" class="card"></div>
+        <div class="timeline" id="live-phases"></div>
+        <div class="grid-2">
+          <div class="card" id="live-closeout"></div>
+          <div class="card" id="live-ret"></div>
+        </div>
+        <div class="card" id="live-tables" style="margin-top:16px"></div>
+        <h3 style="margin-top:28px">Quote this live state</h3>
+        <p class="note">Type the two names, the set score from player A’s view, optional first-set games, and the two prices on the screen.</p>
+        <form id="quote-form" class="card">
+          <div class="row">
+            <label>Player A<input id="q-a" required placeholder="Emilio Nava" /></label>
+            <label>Player B<input id="q-b" required placeholder="Henri Squire" /></label>
+            <label>Sets (A-B)
+              <select id="q-sets">
+                <option value="0-0">0–0 open / set 1</option>
+                <option value="1-0">1–0 A took set 1</option>
+                <option value="0-1">0–1 B took set 1</option>
+                <option value="1-1">1–1 decider</option>
+              </select>
+            </label>
+            <label>Set 1 games<input id="q-set1" placeholder="7-6 or 6-1" /></label>
+            <label>Surface
+              <select id="q-surface">
+                <option value="">Overall</option>
+                <option>Clay</option>
+                <option>Hard</option>
+                <option>Grass</option>
+              </select>
+            </label>
+            <label>Live A<input id="q-line-a" type="number" step="0.01" min="1.01" /></label>
+            <label>Live B<input id="q-line-b" type="number" step="0.01" min="1.01" /></label>
+            <button class="cta" type="submit">Price the state</button>
+          </div>
+        </form>
+        <div id="quote-out"></div>
+        <ol class="rules" id="live-rules"></ol>
+      </section>
+
+      <section class="panel" data-panel="matchup">
+        <h1>Who is actually better this week?</h1>
+        <p class="lede">Look up two names from the Challenger or ATP draw. We score them with surface Elo, recent form, retirements, and — if you type the prices — a de-vigged market. Movement without a prior is just a story.</p>
+        <form id="matchup-form" class="card">
+          <div class="row">
+            <label>Player A<input id="player-a" required placeholder="Jesper de Jong" /></label>
+            <label>Player B<input id="player-b" required placeholder="Thiago Agustin Tirante" /></label>
+            <label>Surface
+              <select id="surface">
+                <option value="">Overall Elo</option>
+                <option>Hard</option>
+                <option>Clay</option>
+                <option>Grass</option>
+                <option>Carpet</option>
+              </select>
+            </label>
+            <label>Your line A<input id="line-a" type="number" step="0.01" min="1.01" placeholder="1.83" /></label>
+            <label>Your line B<input id="line-b" type="number" step="0.01" min="1.01" placeholder="2.05" /></label>
+            <button class="cta" type="submit">Build card</button>
+          </div>
+        </form>
+        <div id="matchup-out"></div>
+      </section>
+
+      <section class="panel" data-panel="challenger">
+        <h1>Challenger tape</h1>
+        <p class="lede">In this sample, Challenger rank-underdogs cash at about the same rate as ATP tour matches (~36%). Retirements run a bit hotter. When the rank gap is under 20, it is basically a coin flip — that is why a thin market jumps, not proof the old number was wrong.</p>
+        <div class="card" id="chall-context"></div>
+        <div class="card" style="margin-top:16px">
+          <label>Surface
+            <select id="chall-surface">
+              <option value="">All</option>
+              <option>Hard</option>
+              <option>Clay</option>
+              <option>Grass</option>
+            </select>
+          </label>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th><th>Event</th><th>Surf</th><th>Rd</th>
+                <th>Winner</th><th>Loser</th><th>Score</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="chall-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="market">
+        <h1>How the close really behaves</h1>
+        <p class="lede">tennis-data.co.uk publishes ATP closing prices, not Challenger opens. Use this to see juice and whether favorites cash at the rate the close implied. True movement curves need you to snapshot lines over time.</p>
+        <div class="card" id="market-out"></div>
+        <h3 style="margin-top:28px">Your snapshots</h3>
+        <div id="snap-out"></div>
+      </section>
+
+      <section class="panel" data-panel="watch">
+        <h1>Pin a card. Type the number you saw.</h1>
+        <div class="srl-banner">
+          <strong>SRL is Simulated Reality League</strong>
+          <p class="note">Those Stake cricket / virtual slates are generated games, not ATP Challenger tennis. There is no public historical feed and no Elo for a sim engine you do not control. Log a price here if you want a notebook. Do not treat a pattern of twenty sims as a model.</p>
+        </div>
+        <form id="watch-form" class="card">
+          <div class="row">
+            <label>Sport
+              <select id="w-sport">
+                <option value="challenger">Challenger</option>
+                <option value="atp">ATP</option>
+                <option value="srl">SRL (manual log)</option>
+              </select>
+            </label>
+            <label>Side A<input id="w-a" required /></label>
+            <label>Side B<input id="w-b" required /></label>
+            <label>Surface<input id="w-surface" placeholder="Clay" /></label>
+            <label>Event<input id="w-tour" /></label>
+            <label>Line A<input id="w-line-a" type="number" step="0.01" /></label>
+            <label>Line B<input id="w-line-b" type="number" step="0.01" /></label>
+            <label>Note<textarea id="w-notes" placeholder="Why this number looked off"></textarea></label>
+            <button class="cta" type="submit">Pin</button>
+          </div>
+        </form>
+        <div class="card" style="margin-top:16px">
+          <table>
+            <thead><tr><th>Sport</th><th>A</th><th>B</th><th>Surf</th><th>Lines</th><th>Note</th><th></th></tr></thead>
+            <tbody id="watch-table"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
